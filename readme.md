@@ -1,5 +1,10 @@
 # P2P NFT loans
 
+NFT loans allows you to have access to liquidity without loosing the ownership of your NFTS
+1.- Secure your NFT in NFT loans and request an amount of tokens
+2.- People loan you the amount of tokens you expect to receive
+3.- You have the option to payback the tokens + interest or to give NFT to the loaner
+
 ### NFT Transfer call - Paras Id
 near call paras-token-v2.testnet nft_transfer_call '{"receiver_id": "dev-1647616622735-74951297117503","token_id": "299:9", "msg": "this is the message"}' --accountId alan_test.testnet --depositYocto 1  --gas 300000000000000
 
