@@ -1,4 +1,6 @@
-# P2P NFT loans
+# Nativo NFT - P2P loans
+
+![Logo](https://v2.nativonft.app/static/media/nativologocrop.15afa4d2.png)
 
 NFT loans allows you to have access to liquidity without loosing the ownership of your NFTS
 1.- Secure your NFT in NFT loans and request an amount of tokens
