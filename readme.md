@@ -16,7 +16,7 @@ near call paras-token-v2.testnet nft_transfer_call '{"receiver_id": "dev-1647921
 near view paras-token-v2.testnet nft_token '{"token_id":"299:9"}' 
 ### NFT Transfer call - Mintbase
 
-near call alst77.mintspace2.testnet nft_transfer_call '{"receiver_id": "dev-1647921766612-74437195022952","token_id":"0", "msg": "{\"description\": \"list\", \"loan_amount_requested\": \"100\" }"}' --accountId alan_test.testnet --depositYocto 1 --gas 300000000000000
+near call alst77.mintspace2.testnet nft_transfer_call '{"receiver_id": "dev-1647921766612-74437195022952","token_id":"0", "msg": "{\"description\": \"list\", \"loan_amount_requested\": 100 }"}' --accountId alan_test.testnet --depositYocto 1 --gas 300000000000000
 
 
 near call alst77.mintspace2.testnet nft_transfer_call '{"receiver_id": "alan_test.testnet","token_id":"0","msg":""}' --accountId dev-1647921766612-74437195022952 --depositYocto 1 --gas 300000000000000

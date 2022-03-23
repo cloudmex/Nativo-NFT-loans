@@ -97,6 +97,7 @@ impl NFTLoans {
     // This method is called from the NFT contract
     // When transfered succesful it is saved as a new requesting for loaning
     pub fn nft_on_transfer(&mut self,sender_id: AccountId,previous_owner_id: AccountId,token_id: String,msg: String)->  bool{
+        assert!(msg.is_empty(), "ERR_INVALID_MESSAGE");
         let id = self.last_loan_id;
         let contract_id = env::predecessor_account_id();
         let signer_id = env::signer_account_id();
