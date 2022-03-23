@@ -1,12 +1,18 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::LookupMap;
-use near_sdk::{env,log, near_bindgen, AccountId, PromiseOrValue};
+use near_sdk::collections::{LookupMap,UnorderedSet};
+use near_sdk::{env,log, near_bindgen, AccountId, PromiseOrValue,PanicOnDefault};
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::serde_json::json;
-use near_sdk::json_types::{U128,U64};
+use near_sdk::serde_json::{json,from_str};
+use near_sdk::json_types::{U64};
 use near_sdk::Promise;
 
+use std::cmp::min;
+
 near_sdk::setup_alloc!();
+
+pub type EpochHeight = u64;
+
+
 
 /// Status of a loan.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -38,7 +44,7 @@ pub struct Loan {
     /// Description of this loan.
     pub description: Option<String>,
     /// Current status of the loan
-    pub loan_requested: U64,
+    pub loan_requested: EpochHeight,
     /// Current status of the loan
     pub status: LoanStatus,
     /// Submission time
@@ -55,52 +61,65 @@ pub struct LoanOutput {
     #[serde(flatten)]
     pub loan: Loan,
 }
+/// This is format of output via JSON for the loan message.
+#[derive( Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct MsgInput {
+    pub description: Option<String>,
+    pub loan_amount_requested: u64,
+}
 
 #[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct NFTLoans {
+    /// Owner's account ID (it will be a DAO on phase II)
+    pub owner_account_id: AccountId,
     pub last_loan_id: u64,
     pub loans: LookupMap<u64, Loan>,
-}
-impl Default for NFTLoans {
-    fn default() -> Self {
-        Self {
-            last_loan_id: 0,
-            loans: LookupMap::new(b"r".to_vec()),
-        }
-    }
 }
 
 #[near_bindgen]
 impl NFTLoans {
+    #[init]
+    pub fn new(
+        owner_account_id: AccountId,
+        treasury_account_id: AccountId,
+    ) -> Self {
+        assert!(!env::state_exists(), "The contract is already initialized");
+        let result= Self{
+            owner_account_id,
+            last_loan_id: 0,
+            loans: LookupMap::new(b"r".to_vec()),
+        };
+        return result;
+    }
     // Receive an NFT with the method nft_transfer_call 
     // This method is called from the NFT contract
     // When transfered succesful it is saved as a new requesting for loaning
-    pub fn nft_on_transfer(&mut self,sender_id: String,previous_owner_id: String,token_id: String,msg: String)->  bool{
-        let signer_account_id = env::signer_account_id();
-        env::log_str(
-            &json!({
-            "signer_id":signer_account_id.to_string(),
-            "sender_id":sender_id,
-            "previous_owner_id": previous_owner_id,
-            "token_id": token_id,
-            "msg":msg})
-            .to_string(),
-        );
+    pub fn nft_on_transfer(&mut self,sender_id: AccountId,previous_owner_id: AccountId,token_id: String,msg: String)->  bool{
+        assert!(msg.is_empty(), "ERR_INVALID_MESSAGE");
         let id = self.last_loan_id;
+        let contract_id = env::predecessor_account_id();
         let signer_id = env::signer_account_id();
+        let msg_json: MsgInput = from_str(&msg).unwrap();
+
         let new_loan = Loan{
-            nft_contract:signer_id,
+            nft_contract:contract_id,
             nft_id:token_id,
             nft_owner:signer_id ,
-            description:Some("This a description".to_string()),
-            loan_requested:U64(20),
+            description:msg_json.description,
+            loan_requested:msg_json.loan_amount_requested,
             status: LoanStatus::Pending,
             submission_time: U64::from(env::block_timestamp()),
             loan_time:None,
         };
         self.loans.insert(&id, &new_loan);
         self.last_loan_id += 1;
+        env::log_str(
+            &json!(new_loan)
+            .to_string(),
+        );
+        //If for some reason the contract failed it need to returns the NFT to the original owner (true)
         return false;
     }
     
@@ -110,19 +129,26 @@ impl NFTLoans {
     }
 
     pub fn get_nft_loan(&self, loan_id: u64) -> LoanOutput {
-        let loans = self.loans.get(&loan_id).expect("ERR_NO_PROPOSAL");
+        let loans = self.loans.get(&loan_id).expect("ERR_NO_LOAN");
         LoanOutput {
             id:loan_id,
             loan: loans.into(),
         }
     }
+    //View wich NFT are available for loaning
+    pub fn get_nfts_for_loan(&self, from_index: u64, limit: u64)-> Vec<LoanOutput> {
+        (from_index..min(self.last_loan_id, from_index + limit))
+            .filter_map(|id| {
+                self.loans.get(&id).map(|loan| LoanOutput {
+                    id,
+                    loan: loan.into(),
+                })
+            })
+            .collect()
+    }
 
 
     /*
-    //View wich NFT are available for loaning
-    pub fn get_nfts_for_loan(&self, from_index: u64, limit: u64)-> Vec<LoanOutput> {
-        let account_id = env::signer_account_id();
-    }
 
     // Loan $NEAR Tokens to a loaning proposal
     #[payable]
