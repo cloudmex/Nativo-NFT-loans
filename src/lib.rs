@@ -146,23 +146,27 @@ impl NFTLoans {
             })
             .collect()
     }
+    // Loan $NEAR Tokens to a loaning proposal
+    #[payable]
+    pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<Loan> {
+        let loan:Loan = self.loans.get(&loan_id).unwrap();
+
+        //Review that NFT is still available for loaning
+        assert_eq!(LoanStatus::Pending,loan.status,"The NFT is not available for loaning");
+        //Review that amount is the required
+        assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
+        //Review that loaner is not the same as NFT owner
+        assert_eq!(env::signer_account_id(),loan.nft_owner,"The owner cannot be the loaner");
+
+        return self.loans.get(&loan_id);
+    }
 
 
     /*
-
-    // Loan $NEAR Tokens to a loaning proposal
-    #[payable]
-    pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<String> {
-        //Review that NFT is still available for loaning
-        assert_eq!(True,loan_status,"The NFT is not available for loaning");
-        //Review that amount is the required
-        assert_eq!(amount,amount_to_be_paid,"The amount payed is not equal as the requested");
-        //Review that loaner is not the same as NFT owner
-        assert_eq!(signer_account_id,nft_owner_id,"The owner cannot be the loaner");
-
+    pub fn pay_loan(&mut self,loan_id:u64) -> Option<String> {
         return self.records.get(&account_id);
     }
-
+   
     //If time has passed and the NFT owner didn't pay
     //The loaner can claim the NFT and transfer to their wallet
     pub fn withdraw_nft_loaner(loan_id:u64) -> Option<String> {
