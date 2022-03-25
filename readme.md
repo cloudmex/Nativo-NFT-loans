@@ -8,7 +8,7 @@ NFT loans allows you to have access to liquidity without loosing the ownership o
 3.- You have the option to payback the tokens + interest or to give NFT to the loaner
 
 ### Initializing the contract
-near call dev-1647921766612-74437195022952 new '{"owner_account_id": "dev-1647921766612-74437195022952","treasury_account_id": "dev-1647921766612-74437195022952"}' --accountId alan_test.testnet 
+near call dev-1648147957100-96990069918936 new '{"owner_account_id": "dev-1648147957100-96990069918936","treasury_account_id": "dev-1648147957100-96990069918936","contract_apy": 80 }' --accountId alan_test.testnet 
 
 ### NFT Transfer call - Paras Id
 near call paras-token-v2.testnet nft_transfer_call '{"receiver_id": "dev-1647921766612-74437195022952","token_id": "299:9", "msg": "{\"description\": \"list\", \"loan_requested\": \"100\"}"}' --accountId alan_test.testnet --depositYocto 1  --gas 300000000000000
