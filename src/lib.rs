@@ -86,7 +86,7 @@ pub struct NFTLoans {
     /// Total token amount deposited.
     pub total_amount: Balance,
     /// Duration of payment period for loans
-    pub payment_period: Duration,
+    pub payment_period: u64,
 }
 
 #[near_bindgen]
@@ -97,7 +97,7 @@ impl NFTLoans {
         owner_account_id: AccountId,
         treasury_account_id: AccountId,
         contract_apy: u64,
-        payment_period: Duration,
+        
     ) -> Self {
         assert!(!env::state_exists(), "The contract is already initialized");
         let result= Self{
@@ -107,7 +107,7 @@ impl NFTLoans {
             contract_apy,
             loans: LookupMap::new(b"r".to_vec()),
             total_amount: 0,
-            payment_period,
+            payment_period:1_000_000_000 * 60 * 60 * 24 * 7,
         };
         return result;
     }
@@ -128,7 +128,7 @@ impl NFTLoans {
             description:msg_json.description,
             loan_requested:msg_json.loan_amount_requested,
             status: LoanStatus::Pending,
-            submission_time: u64::from(env::block_timestamp()),
+            submission_time: env::block_timestamp(),
             loan_time:None,
             loaner_id:None,
         };
@@ -140,6 +140,44 @@ impl NFTLoans {
         );
         //If for some reason the contract failed it need to returns the NFT to the original owner (true)
         return false;
+    }
+    // Loan $NEAR Tokens to a loaning proposal
+    #[payable]
+    pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<Loan> {
+        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let signer_id =env::signer_account_id();
+
+        //Review that NFT is still available for loaning
+        assert_eq!(LoanStatus::Pending,loan.status,"The NFT is not available for loaning");
+        //Review that amount is the required
+        assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
+        //Review that loaner is not the same as NFT owner
+        assert_eq!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
+
+        loan.status=LoanStatus::Loaned;
+        loan.loaner_id=Some(signer_id);
+        loan.loan_time=Some(env::block_timestamp());
+
+        return Some(loan);
+    }
+
+    #[payable]
+    pub fn pay_loan(&mut self, loan_id: u64) -> Option<Loan> {
+        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let signer_id =env::signer_account_id();
+
+        //Review that NFT is still available for loaning
+        assert_eq!(LoanStatus::Loaned,loan.status,"The NFT is not loaned");
+        //Review that amount is the required
+        assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
+        //Review that loaner is not the same as NFT owner
+        assert_eq!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
+        //Review that loaner is not the same as NFT owner
+        assert!(env::block_timestamp()>=loan.loan_time.unwrap()+self.payment_period,"The payment loan time has expired");
+
+        loan.status=LoanStatus::Payed;
+
+        return Some(loan);
     }
     
     //View the loan_id of the last loan
@@ -165,58 +203,20 @@ impl NFTLoans {
             })
             .collect()
     }
-    // Loan $NEAR Tokens to a loaning proposal
-    #[payable]
-    pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<Loan> {
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
-        let signer_id =env::signer_account_id();
-
-        //Review that NFT is still available for loaning
-        assert_eq!(LoanStatus::Pending,loan.status,"The NFT is not available for loaning");
-        //Review that amount is the required
-        assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
-        //Review that loaner is not the same as NFT owner
-        assert_eq!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
-
-        loan.status=LoanStatus::Loaned;
-        loan.loaner_id=Some(signer_id);
-        loan.loan_time=Some(u64::from(env::block_timestamp()));
-
-        return Some(loan);
-    }
-
-    #[payable]
-    pub fn pay_loan(&mut self, loan_id: u64) -> Option<Loan> {
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
-        let signer_id =env::signer_account_id();
-
-        //Review that NFT is still available for loaning
-        assert_eq!(LoanStatus::Loaned,loan.status,"The NFT is not loaned");
-        //Review that amount is the required
-        assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
-        //Review that loaner is not the same as NFT owner
-        assert_eq!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
-        //Review that loaner is not the same as NFT owner
-        assert!(env::block_timestamp()>=u64::from(loan.loan_time)+self.payment_period,"The owner cannot be the loaner");
-
-        loan.status=LoanStatus::Payed;
-
-        return Some(loan);
-    }
-
-
-    /*
    
     //If time has passed and the NFT owner didn't pay
     //The loaner can claim the NFT and transfer to their wallet
-    pub fn withdraw_nft_loaner(loan_id:u64) -> Option<String> {
-        return self.records.get(&account_id);
+    pub fn withdraw_nft_loaner(&self,loan_id:u64){
+        //return self.loans.get(&loan_id);
     }
 
     //Canceled public offer for loaning
-    pub fn withdraw_nft_owner(&self, loan_id: u64) -> Option<String> {
-        return self.records.get(&account_id);
-    }*/
+    pub fn withdraw_nft_owner(&self, loan_id: u64){
+        //return self.loans.get(&loan_id);
+    }
+
+
+    /**/
 }
 
 
