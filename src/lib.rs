@@ -5,6 +5,7 @@ use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json::{json,from_str};
 use near_sdk::json_types::{U64};
 use near_sdk::Promise;
+use uint::construct_uint;
 
 use std::cmp::min;
 
@@ -12,7 +13,10 @@ near_sdk::setup_alloc!();
 
 pub type EpochHeight = u64;
 
-
+construct_uint! {
+    /// 256-bit unsigned integer.
+    pub struct U256(4);
+}
 
 /// Status of a loan.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -114,8 +118,13 @@ impl NFTLoans {
     // Receive an NFT with the method nft_transfer_call 
     // This method is called from the NFT contract
     // When transfered succesful it is saved as a new requesting for loaning
-    pub fn nft_on_transfer(&mut self,sender_id: AccountId,previous_owner_id: AccountId,token_id: String,msg: String)->  bool{
-        assert!(msg.is_empty(), "ERR_INVALID_MESSAGE");
+    pub fn nft_on_transfer(&mut self,sender_id: AccountId,previous_owner_id: AccountId,token_id: String,msg: String)  -> PromiseOrValue<bool>{
+        env::log_str(&msg.to_string());
+        /*if msg.is_empty() || msg=="" {
+            env::log_str("ERR_INVALID_MESSAGE");
+            PromiseOrValue::Value(true);
+        };*/
+        //assert!(msg.is_empty() || msg=="" ,"ERR_INVALID_MESSAGE");
         let id = self.last_loan_id;
         let contract_id = env::predecessor_account_id();
         let signer_id = env::signer_account_id();
@@ -134,12 +143,13 @@ impl NFTLoans {
         };
         self.loans.insert(&id, &new_loan);
         self.last_loan_id += 1;
-        env::log_str(
+        /*env::log_str(
             &json!(new_loan)
             .to_string(),
         );
+        */
         //If for some reason the contract failed it need to returns the NFT to the original owner (true)
-        return false;
+        return PromiseOrValue::Value(true);
     }
     // Loan $NEAR Tokens to a loaning proposal
     #[payable]
@@ -152,11 +162,12 @@ impl NFTLoans {
         //Review that amount is the required
         assert_eq!(env::attached_deposit(),loan.loan_requested,"The amount payed is not equal as the requested");
         //Review that loaner is not the same as NFT owner
-        assert_eq!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
+        assert_ne!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
 
         loan.status=LoanStatus::Loaned;
         loan.loaner_id=Some(signer_id);
         loan.loan_time=Some(env::block_timestamp());
+        self.loans.insert(&loan_id, &loan);
 
         return Some(loan);
     }
@@ -178,6 +189,16 @@ impl NFTLoans {
         loan.status=LoanStatus::Payed;
 
         return Some(loan);
+    }
+    
+    pub fn apply_pct(basis_points: u16, amount: u128) -> u128 {
+        return ((U256::from(basis_points) * U256::from(amount) / U256::from(10_000))+U256::from(amount)).as_u128();
+    }
+    
+
+    //View the loan_id of the last loan
+    pub fn get_contract_apy(&self)-> u64 {
+        self.contract_apy
     }
     
     //View the loan_id of the last loan
