@@ -2,10 +2,10 @@
 
 ![Logo](https://v2.nativonft.app/static/media/nativologocrop.15afa4d2.png)
 
-NFT loans allows you to have access to liquidity without loosing the ownership of your NFTS
-1.- Secure your NFT in NFT loans and request an amount of tokens
-2.- People loan you the amount of tokens you expect to receive
-3.- You have the option to payback the tokens + interest or to give NFT to the loaner
+NFT loans allows you to have access to liquidity without loosing the ownership of your NFT's
+1. Secure your NFT in NFT loans and request an amount of tokens
+2. People loan you the amount of tokens you expect to receive
+3. You have the option to payback the tokens + interest or to give NFT to the loaner
 
 ### Initializing the contract
 CONTRACT_ID="dev-1648670267690-23487881027419"
