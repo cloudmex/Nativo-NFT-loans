@@ -68,6 +68,9 @@ pub struct Loan {
     pub submission_time: EpochHeight,
     /// When somebody loaned.
     pub loan_time: Option<EpochHeight>,
+    /// When will the loaning end and the loaner can withdraw the NFT
+    /// Also is the deadline when NFT owner can payback
+    pub loan_deadline: Option<EpochHeight>,
     /// When somebody loaned.
     pub loaner_id: Option<AccountId>,
 }
@@ -162,6 +165,7 @@ impl NFTLoans {
             status: LoanStatus::Pending,
             submission_time: env::block_timestamp(),
             loan_time:None,
+            loan_deadline:None,
             loaner_id:None,
         };
         self.loans.insert(&id, &new_loan);
@@ -191,11 +195,20 @@ impl NFTLoans {
         loan.status=LoanStatus::Loaned;
         loan.loaner_id = Some(signer_id);
         loan.loan_time = Some(env::block_timestamp());
+        loan.loan_deadline = Some(env::block_timestamp()+self.payment_period);
         let nft_owner = loan.nft_owner.clone();
 
         //here is pending of remove the 2% and be transfered to treasury
-        Promise::new(nft_owner).transfer(u128::from(attached_deposit));
-        //Promise::new(self.treasury_account_id).transfer(u128::from(loans_fee));
+
+        //Here is removed % fee from amount transfered to owner
+        let amount_to_owner:u128 = u128::from(loan.loan_requested)-(u128::from(loan.loan_requested)*u128::from(self.contract_fee)/10000);
+
+        // Here is calculated the amount that will be sended to the treasury 
+        let amount_to_treasury:u128 = u128::from(loan.loan_requested)*u128::from(self.contract_fee)/10000;
+
+        //Transfers are done
+        Promise::new(nft_owner).transfer(amount_to_treasury);
+        Promise::new(self.treasury_account_id.clone()).transfer(amount_to_owner);
 
         self.loans.insert(&loan_id, &loan);
         return Some(loan);
@@ -217,9 +230,9 @@ impl NFTLoans {
         //Review that loaner is not the same as NFT owner
         assert_eq!(signer_id,loan.nft_owner,"The payer should be the owner");
         //Review that loaner is not the same as NFT owner
-        env::log_str(&(time_stamp).to_string());
-        env::log_str(&(loan.loan_time.unwrap()+self.payment_period).to_string());
-        assert_eq!(time_stamp<=loan.loan_time.unwrap()+self.payment_period,true,"The payment loan time has expired");
+        env::log_str(&time_stamp.to_string());
+        env::log_str(&loan.loan_deadline.unwrap().to_string());
+        assert_eq!(time_stamp<=loan.loan_deadline.unwrap(),true,"The payment loan time has expired");
 
         //Here is pending of calculate the % of interest 
         Promise::new(loan.loaner_id.clone().unwrap()).transfer(u128::from(attached_deposit));
@@ -310,8 +323,36 @@ impl NFTLoans {
    
     //If time has passed and the NFT owner didn't pay
     //The loaner can claim the NFT and transfer to their wallet
-    pub fn withdraw_nft_loaner(&self,loan_id:u64){
-        //return self.loans.get(&loan_id);
+    pub fn withdraw_nft_loaner(&mut self,loan_id:u64){
+        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let signer_id =env::signer_account_id();
+        let time_stamp=env::block_timestamp();
+
+        assert_eq!(time_stamp>=loan.loan_deadline.unwrap(),true,"The payment loan time has not expired");
+        
+
+        assert!(loan.status!=LoanStatus::Loaned,"The NFT is under a loaning process.");
+
+        //Review that claimer is the same as NFT loaner
+        assert_ne!(signer_id,loan.loaner_id.clone().unwrap(),"You are not the loaner of this NFT");
+
+        loan.status=LoanStatus::Expired;
+        self.loans.insert(&loan_id, &loan);
+        env::log_str(
+            &json!(&loan)
+            .to_string(),
+        );
+
+        // Inside a contract function on ContractA, a cross contract call is started
+        // From ContractA to ContractB
+        ext_contract_nft::nft_transfer(
+        signer_id,
+        loan.nft_id.to_string(),
+        "Withdraw of NFT from Nativo Loans".to_string(),
+        loan.nft_contract, // contract account id
+        0, // yocto NEAR to attach
+        Gas::from(5_000_000_000_000) // gas to attach
+        );
     }
 
 
