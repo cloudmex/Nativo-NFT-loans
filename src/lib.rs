@@ -136,6 +136,7 @@ impl NFTLoans {
         };
         return result;
     }
+
     // Receive an NFT with the method nft_transfer_call 
     // This method is called from the NFT contract
     // When transfered succesful it is saved as a new requesting for loaning
@@ -176,12 +177,13 @@ impl NFTLoans {
         );*/
         
         //If for some reason the contract failed it need to returns the NFT to the original owner (true)
-        return PromiseOrValue::Value(true);
+        return PromiseOrValue::Value(false);
     }
+
     // Loan $NEAR Tokens to a loaning proposal
     #[payable]
     pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<Loan> {
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let mut loan:Loan = self.loans.get(&loan_id).expect("the token doesn't have an active loan"); ///use a expect and explain that the loan wasnt found        
         let signer_id =env::signer_account_id();
         let attached_deposit=env::attached_deposit();
 
@@ -195,7 +197,9 @@ impl NFTLoans {
         loan.status=LoanStatus::Loaned;
         loan.loaner_id = Some(signer_id);
         loan.loan_time = Some(env::block_timestamp());
+        //loan.loan_deadline = Some(env::block_timestamp()+60);
         loan.loan_deadline = Some(env::block_timestamp()+self.payment_period);
+
         let nft_owner = loan.nft_owner.clone();
 
         //here is pending of remove the 2% and be transfered to treasury
@@ -207,8 +211,8 @@ impl NFTLoans {
         let amount_to_treasury:u128 = u128::from(loan.loan_requested)*u128::from(self.contract_fee)/10000;
 
         //Transfers are done
-        Promise::new(nft_owner).transfer(amount_to_treasury);
-        Promise::new(self.treasury_account_id.clone()).transfer(amount_to_owner);
+        Promise::new(nft_owner).transfer(amount_to_owner); //before the owner recived the amount for treasury
+        Promise::new(self.treasury_account_id.clone()).transfer(amount_to_treasury);//before the treasury recived the amount for owner
 
         self.loans.insert(&loan_id, &loan);
         return Some(loan);
@@ -254,23 +258,29 @@ impl NFTLoans {
     }
 
     //Canceled public offer for loaning
+    #[payable]
     pub fn withdraw_nft_owner(&mut self, loan_id: u64){
         let mut loan:Loan = self.loans.get(&loan_id).unwrap();
         let signer_id =env::signer_account_id();
-        
+        let deposit = env::attached_deposit();
+
         //assert!(env::block_timestamp()<=loan.loan_time.unwrap()+self.payment_period&&loan.status==LoanStatus::Loaned,"The NFT is still pending of get loan payed");
 
-        assert!(loan.status!=LoanStatus::Pending,"The NFT is under a loaning process.");
+        assert!(loan.status!=LoanStatus::Canceled,"The loan is canceled.");
 
         //Review that claimer is the same as NFT owner
-        assert_ne!(signer_id,loan.nft_owner,"You are not the owner of this NFT");
+        //assert_ne!(signer_id,loan.nft_owner,"You are not the owner of this NFT");
+
+        if signer_id != loan.nft_owner.clone(){
+            env::panic_str("You are not the owner of this NFT");
+        }
 
         loan.status=LoanStatus::Canceled;
         self.loans.insert(&loan_id, &loan);
-        env::log_str(
-            &json!(&loan)
-            .to_string(),
-        );
+        // env::log_str(
+        //     &json!(&loan)
+        //     .to_string(),
+        // );
 
         // Inside a contract function on ContractA, a cross contract call is started
         // From ContractA to ContractB
@@ -279,7 +289,7 @@ impl NFTLoans {
         loan.nft_id.to_string(),
         "Withdraw of NFT from Nativo Loans".to_string(),
         loan.nft_contract, // contract account id
-        0, // yocto NEAR to attach
+        deposit, // yocto NEAR to attach
         Gas::from(5_000_000_000_000) // gas to attach
         );
         /*
@@ -321,27 +331,32 @@ impl NFTLoans {
             .collect()
     }
    
+    
     //If time has passed and the NFT owner didn't pay
     //The loaner can claim the NFT and transfer to their wallet
+    #[payable]
     pub fn withdraw_nft_loaner(&mut self,loan_id:u64){
         let mut loan:Loan = self.loans.get(&loan_id).unwrap();
-        let signer_id =env::signer_account_id();
+        let signer_id=env::signer_account_id();
         let time_stamp=env::block_timestamp();
+        let deposit = env::attached_deposit();
 
         assert_eq!(time_stamp>=loan.loan_deadline.unwrap(),true,"The payment loan time has not expired");
         
 
-        assert!(loan.status!=LoanStatus::Loaned,"The NFT is under a loaning process.");
+        //assert!(loan.status!=LoanStatus::Loaned,"The NFT is under a loaning process.");
 
         //Review that claimer is the same as NFT loaner
-        assert_ne!(signer_id,loan.loaner_id.clone().unwrap(),"You are not the loaner of this NFT");
+        if signer_id != loan.loaner_id.clone().unwrap(){
+            env::panic_str("You are not the loaner of this NFT");
+        }
 
         loan.status=LoanStatus::Expired;
         self.loans.insert(&loan_id, &loan);
-        env::log_str(
-            &json!(&loan)
-            .to_string(),
-        );
+        // env::log_str(
+        //     &json!(&loan)
+        //     .to_string(),
+        // );
 
         // Inside a contract function on ContractA, a cross contract call is started
         // From ContractA to ContractB
@@ -350,7 +365,7 @@ impl NFTLoans {
         loan.nft_id.to_string(),
         "Withdraw of NFT from Nativo Loans".to_string(),
         loan.nft_contract, // contract account id
-        0, // yocto NEAR to attach
+        deposit, // yocto NEAR to attach
         Gas::from(5_000_000_000_000) // gas to attach
         );
     }
