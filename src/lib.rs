@@ -1,12 +1,20 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LookupMap};
-use near_sdk::{env,ext_contract, Balance,Gas, near_bindgen, AccountId, PromiseOrValue,PanicOnDefault};
+use near_sdk::collections::{LookupMap, UnorderedMap, UnorderedSet};
+use near_sdk::{env,ext_contract, Balance,Gas, near_bindgen, AccountId, PromiseOrValue,PanicOnDefault,CryptoHash};
 use near_sdk::serde::{Deserialize, Serialize};
+use near_sdk::json_types::{U128};
 use near_sdk::serde_json::{json,from_str};
 use near_sdk::Promise;
 use uint::construct_uint;
 
 use std::cmp::min;
+
+use crate::internal::*;
+pub use crate::metadata::*;
+
+mod enumeration;
+mod metadata;
+mod internal;
 
 near_sdk::setup_alloc!();
 
@@ -16,6 +24,19 @@ construct_uint! {
     /// 256-bit unsigned integer.
     pub struct U256(4);
 }
+/// Helper structure for keys of the persistent collections.
+#[derive(BorshSerialize)]
+pub enum StorageKey {
+    LoansPerOwner,
+    LoanPerOwnerInner { account_id_hash: CryptoHash },
+    LoansPerLender,
+    LoanPerLenderInner { account_id_hash: CryptoHash },
+    LoansById,
+    LoansMetadataById,
+}
+
+
+
 //aqui van los nombres de los metodos que mandaremos llamar
 #[ext_contract(ext_contract_nft)]
 trait NonFungibleToken {
@@ -28,67 +49,6 @@ trait NonFungibleToken {
         msg: String,
     );
 
-}
-/// Status of a loan.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
-#[serde(crate = "near_sdk::serde")]
-pub enum LoanStatus {
-    //First status when no body had loaned for this NFT
-    Pending,
-    /// If somebody loaned for this NFT
-    Loaned,
-    /// Expired after period of time. Loaner claimed the NFT.
-    Expired,
-    /// If NFT owner payed back for the loan
-    Payed,
-    // If no body loaned for this NFT. This status gets after owners claim back its NFT.
-    Canceled,
-}
-
-/// Proposal for loaning that are sent to this DAO.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-#[cfg_attr(not(target_arch = "wasm32"), derive(Debug))]
-#[serde(crate = "near_sdk::serde")]
-pub struct Loan {
-    /// Original nft owner.
-    pub nft_owner: AccountId,
-    /// Original nft contract.
-    pub nft_contract: AccountId,
-    /// NFT id in origin contract.
-    pub nft_id: String,
-    /// Description of this loan.
-    pub description: Option<String>,
-    /// loan amount requested
-    pub loan_requested: u128,
-    /// loan amount that have to be payback
-    pub loan_payback: u128,
-    /// Current status of the loan
-    pub status: LoanStatus,
-    /// Submission time
-    pub submission_time: EpochHeight,
-    /// When somebody loaned.
-    pub loan_time: Option<EpochHeight>,
-    /// When will the loaning end and the loaner can withdraw the NFT
-    /// Also is the deadline when NFT owner can payback
-    pub loan_deadline: Option<EpochHeight>,
-    /// When somebody loaned.
-    pub loaner_id: Option<AccountId>,
-}
-/// This is format of output via JSON for the Loan.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-#[serde(crate = "near_sdk::serde")]
-pub struct LoanOutput {
-    /// Id of the Loan.
-    pub id: u64,
-    #[serde(flatten)]
-    pub loan: Loan,
-}
-/// This is format of output via JSON for the loan message.
-#[derive( Serialize, Deserialize)]
-#[serde(crate = "near_sdk::serde")]
-pub struct MsgInput {
-    pub description: Option<String>,
-    pub loan_amount_requested: u128,
 }
 
 #[near_bindgen]
@@ -103,7 +63,12 @@ pub struct NFTLoans {
     // Transaction interest estimated for the NFT payment
     // It is based as 10000=100%
     pub contract_interest: u64,
-    pub loans: LookupMap<u64, Loan>,
+    //keeps track of the loan struct for a given loan ID
+    pub loans_by_id: UnorderedMap<LoanId, Loan>,
+    //keeps track of all the loan IDs for a given account
+    pub loans_per_owner: LookupMap<AccountId, UnorderedSet<LoanId>>,
+    //keeps track of all the loan IDs for a given account
+    pub loans_per_lender: LookupMap<AccountId, UnorderedSet<LoanId>>,
     /// Total token amount deposited.
     pub total_amount: Balance,
     /// Duration of payment period for loans
@@ -111,6 +76,9 @@ pub struct NFTLoans {
     /// Fee payed to Nativo Loans
     pub contract_fee:u64, //200=2%
 }
+
+
+
 
 #[near_bindgen]
 impl NFTLoans {
@@ -129,7 +97,9 @@ impl NFTLoans {
             treasury_account_id,
             last_loan_id: 0,
             contract_interest,
-            loans: LookupMap::new(b"r".to_vec()),
+            loans_by_id: UnorderedMap::new(StorageKey::LoansById.try_to_vec().unwrap()),
+            loans_per_owner: LookupMap::new(StorageKey::LoansPerOwner.try_to_vec().unwrap()),
+            loans_per_lender: LookupMap::new(StorageKey::LoansPerLender.try_to_vec().unwrap()),
             total_amount: 0,
             payment_period:1_000_000_000 * 60 * 60 * 24 * 7,
             contract_fee, //200=2%
@@ -147,7 +117,7 @@ impl NFTLoans {
             None
         };*/
         //assert!(msg.is_empty() || msg=="" ,"ERR_INVALID_MESSAGE");
-        let id = self.last_loan_id;
+        let id:LoanId = self.last_loan_id;
         let contract_id = env::predecessor_account_id();
         let signer_id = env::signer_account_id();
         let msg_json: MsgInput = from_str(&msg).unwrap();
@@ -159,7 +129,7 @@ impl NFTLoans {
         let new_loan = Loan{
             nft_contract:contract_id,
             nft_id:token_id,
-            nft_owner:signer_id ,
+            nft_owner:signer_id.clone() ,
             description:msg_json.description,
             loan_requested:msg_json.loan_amount_requested,
             loan_payback:amount_to_loaner,
@@ -169,7 +139,8 @@ impl NFTLoans {
             loan_deadline:None,
             loaner_id:None,
         };
-        self.loans.insert(&id, &new_loan);
+        self.loans_by_id.insert(&id, &new_loan);
+        self.internal_add_loan_to_owner(&signer_id, &id);
         self.last_loan_id += 1;
         /*env::log_str(
             &json!(new_loan)
@@ -183,7 +154,8 @@ impl NFTLoans {
     // Loan $NEAR Tokens to a loaning proposal
     #[payable]
     pub fn loan_for_nft(&mut self, loan_id: u64) -> Option<Loan> {
-        let mut loan:Loan = self.loans.get(&loan_id).expect("the token doesn't have an active loan"); ///use a expect and explain that the loan wasnt found        
+        //use a expect and explain that the loan wasnt found
+        let mut loan:Loan = self.loans_by_id.get(&loan_id).expect("the token doesn't have an active loan");        
         let signer_id =env::signer_account_id();
         let attached_deposit=env::attached_deposit();
 
@@ -192,10 +164,10 @@ impl NFTLoans {
         //Review that amount is the required
         assert_eq!(attached_deposit,loan.loan_requested,"The amount payed is not equal as the requested");
         //Review that loaner is not the same as NFT owner
-        assert_ne!(signer_id,loan.nft_owner,"The owner cannot be the loaner");
+        assert_ne!(signer_id.clone(),loan.nft_owner,"The owner cannot be the loaner");
 
         loan.status=LoanStatus::Loaned;
-        loan.loaner_id = Some(signer_id);
+        loan.loaner_id = Some(signer_id.clone());
         loan.loan_time = Some(env::block_timestamp());
         //loan.loan_deadline = Some(env::block_timestamp()+60);
         loan.loan_deadline = Some(env::block_timestamp()+self.payment_period);
@@ -214,13 +186,14 @@ impl NFTLoans {
         Promise::new(nft_owner).transfer(amount_to_owner); //before the owner recived the amount for treasury
         Promise::new(self.treasury_account_id.clone()).transfer(amount_to_treasury);//before the treasury recived the amount for owner
 
-        self.loans.insert(&loan_id, &loan);
+        self.loans_by_id.insert(&loan_id, &loan);
+        self.internal_add_loan_to_lender(&signer_id, &loan_id);
         return Some(loan);
     }
 
     #[payable]
     pub fn pay_loan(&mut self, loan_id: u64) -> Option<Loan> {
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let mut loan:Loan = self.loans_by_id.get(&loan_id).unwrap();
         let signer_id =env::signer_account_id();
         let attached_deposit=env::attached_deposit();
         let time_stamp=env::block_timestamp();
@@ -252,7 +225,7 @@ impl NFTLoans {
         );
 
         loan.status=LoanStatus::Payed;
-        self.loans.insert(&loan_id, &loan);
+        self.loans_by_id.insert(&loan_id, &loan);
 
         return Some(loan);
     }
@@ -260,7 +233,7 @@ impl NFTLoans {
     //Canceled public offer for loaning
     #[payable]
     pub fn withdraw_nft_owner(&mut self, loan_id: u64){
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let mut loan:Loan = self.loans_by_id.get(&loan_id).unwrap();
         let signer_id =env::signer_account_id();
         let deposit = env::attached_deposit();
 
@@ -276,7 +249,8 @@ impl NFTLoans {
         }
 
         loan.status=LoanStatus::Canceled;
-        self.loans.insert(&loan_id, &loan);
+        self.loans_by_id.insert(&loan_id, &loan);
+        self.internal_remove_loan_from_owner(&signer_id, &loan_id);
         // env::log_str(
         //     &json!(&loan)
         //     .to_string(),
@@ -300,43 +274,13 @@ impl NFTLoans {
         0, // yocto NEAR to attach to the callback
         5_000_000_000_000 // gas to attach to the callback
         ))*/
-    }
-
-    //View the loan_id of the last loan
-    pub fn get_contract_interest(&self)-> u64 {
-        self.contract_interest
-    }
-    
-    //View the loan_id of the last loan
-    pub fn get_last_loan(&self)-> u64 {
-        self.last_loan_id
-    }
-
-    pub fn get_nft_loan(&self, loan_id: u64) -> LoanOutput {
-        let loans = self.loans.get(&loan_id).expect("ERR_NO_LOAN");
-        LoanOutput {
-            id:loan_id,
-            loan: loans.into(),
-        }
-    }
-    //View wich NFT are available for loaning
-    pub fn get_nfts_for_loan(&self, from_index: u64, limit: u64)-> Vec<LoanOutput> {
-        (from_index..min(self.last_loan_id, from_index + limit))
-            .filter_map(|id| {
-                self.loans.get(&id).map(|loan| LoanOutput {
-                    id,
-                    loan: loan.into(),
-                })
-            })
-            .collect()
-    }
-   
+    }   
     
     //If time has passed and the NFT owner didn't pay
     //The loaner can claim the NFT and transfer to their wallet
     #[payable]
     pub fn withdraw_nft_loaner(&mut self,loan_id:u64){
-        let mut loan:Loan = self.loans.get(&loan_id).unwrap();
+        let mut loan:Loan = self.loans_by_id.get(&loan_id).unwrap();
         let signer_id=env::signer_account_id();
         let time_stamp=env::block_timestamp();
         let deposit = env::attached_deposit();
@@ -352,7 +296,9 @@ impl NFTLoans {
         }
 
         loan.status=LoanStatus::Expired;
-        self.loans.insert(&loan_id, &loan);
+        self.loans_by_id.insert(&loan_id, &loan);
+        self.internal_remove_loan_from_owner(&signer_id, &loan_id);
+        self.internal_remove_loan_from_lender(&signer_id, &loan_id);
         // env::log_str(
         //     &json!(&loan)
         //     .to_string(),
