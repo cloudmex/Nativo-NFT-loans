@@ -50,6 +50,26 @@ pub struct Loan {
     /// When somebody loaned.
     pub loaner_id: Option<AccountId>,
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize,Debug)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Metrics {
+    //Index for loans
+    pub total_loans: u64,
+    //how much loans are running
+    pub total_loans_active: u128,
+    /// Total token amount deposited.
+    pub total_amount_payed: u128,
+    // a flag to start/stop the ntv minting
+    pub ntv_status:bool,
+    //multuplier for ntv tokens.
+    pub ntv_multiply:u128,
+    //how much money has made by auctions
+    pub total_amount_lent: u128,
+    //how much ATH has made by auctions
+    pub loan_current_ath: u128,
+}
+
 /// This is format of output via JSON for the Loan.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]

@@ -162,4 +162,28 @@ impl NFTLoans {
             //since we turned the keys into an iterator, we need to turn it back into a vector to return
             .collect()
     }
+
+    pub fn get_loans_metrics(& self) -> Metrics {
+        let metrics = Metrics {
+            
+            total_loans: self.last_loan_id,
+            
+            total_amount_payed: self.total_amount_payed,
+            
+            ntv_status:self.is_minting_ntv,
+
+            ntv_multiply: self.ntv_multiply,
+            
+            total_loans_active: self.loans_active,
+            
+            total_amount_lent: self.total_amount_lent,
+            
+            loan_current_ath: self.loan_current_ath,
+       };
+       metrics
+    }
+   
+    pub fn is_ntv_enable(&self)->bool {
+        self.is_minting_ntv
+    }
 }
