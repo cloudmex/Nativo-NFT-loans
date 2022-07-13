@@ -1968,6 +1968,7 @@ dependencies = [
  "near-contract-standards",
  "near-sdk",
  "near-sdk-sim",
+ "near-sys",
  "serde_with",
  "uint 0.8.5",
 ]
